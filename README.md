@@ -54,14 +54,17 @@ Edit `.env` and set:
 ### 4. First sync
 
 ```powershell
-uv run gmailquest sync --full --query "after:2026/01/01"
+uv run gmailquest sync --full --start 2026-01-01
 ```
 
-The `--query` flag scopes the initial backfill to a Gmail search query so you're not pulling
-the entire mailbox history on the first run. Drop it to sync everything. The first run opens
-a browser for the one-time OAuth consent; after that, the refresh token in `data/token.json`
-is reused automatically. Re-run `uv run gmailquest sync` (without `--full`) any time afterward
-for a cheap incremental update.
+`--start`/`--end` (ISO dates, end exclusive — same convention as every stats function) scope
+the backfill to a window so you're not pulling the entire mailbox history on the first run.
+Drop them to sync everything, or use `--query` instead/as well for anything Gmail search
+syntax can express (e.g. `--query "after:2026/01/01 from:*@devpost.com"`). Providing a window
+or query implies `--full` automatically. The first run opens a browser for the one-time OAuth
+consent; after that, the refresh token in `data/token.json` is reused automatically. Re-run
+`uv run gmailquest sync` (no options) any time afterward for a cheap incremental update —
+already-stored messages are skipped, so a scoped backfill is also cheap to re-run/resume.
 
 ### 5. Build the topic index (optional, needed for "most asked questions")
 

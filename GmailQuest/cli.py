@@ -3,6 +3,7 @@ needed. Useful for fast iteration while building; the MCP server is the interfac
 from __future__ import annotations
 
 import json
+from datetime import datetime
 
 import click
 
@@ -12,19 +13,48 @@ def main() -> None:
     pass
 
 
+def _build_date_query(start: str | None, end: str | None) -> str:
+    """Turn ISO dates into Gmail search operators. Gmail's after:/before: are date-only and
+    behave start-inclusive/end-exclusive, same convention as every stats function here."""
+    parts = []
+    if start:
+        parts.append(f"after:{datetime.fromisoformat(start).strftime('%Y/%m/%d')}")
+    if end:
+        parts.append(f"before:{datetime.fromisoformat(end).strftime('%Y/%m/%d')}")
+    return " ".join(parts)
+
+
 @main.command()
+@click.option("--start", default=None, help="ISO date, inclusive, e.g. 2026-01-01.")
+@click.option("--end", default=None, help="ISO date, exclusive, e.g. 2026-04-01.")
 @click.option(
     "--query",
     default="",
-    help="Optional Gmail search query to scope the initial backfill, e.g. 'after:2026/01/01'.",
+    help="Optional raw Gmail search query, combined with --start/--end if both are given.",
 )
 @click.option("--full", is_flag=True, help="Force a full backfill instead of an incremental sync.")
-def sync(query: str, full: bool) -> None:
-    """Sync messages from Gmail into the local database."""
+def sync(start: str | None, end: str | None, query: str, full: bool) -> None:
+    """Sync messages from Gmail into the local database.
+
+    Scoping with --start/--end (or --query) downloads only that window — faster, cheaper on
+    API quota, and keeps the database itself small so even an unscoped `cluster` run later
+    stays fast. Note: this controls what gets *downloaded*; `cluster` has its own --start/--end
+    that controls what gets *re-clustered* from whatever's already in the database.
+    """
     from GmailQuest import ingest
 
-    count = ingest.full_sync(query) if full else ingest.incremental_sync()
-    click.echo(f"Synced {count} messages.")
+    combined_query = " ".join(part for part in (_build_date_query(start, end), query) if part)
+    if combined_query and not full:
+        full = True  # a scoped backfill isn't expressible as an incremental historyId diff
+
+    result = ingest.full_sync(combined_query) if full else ingest.incremental_sync()
+    if result["skipped"]:
+        click.echo(
+            f"Synced {result['fetched']} new message(s) "
+            f"({result['skipped']} matched but already stored, so skipped)."
+        )
+    else:
+        click.echo(f"Synced {result['fetched']} new message(s).")
 
 
 @main.command()

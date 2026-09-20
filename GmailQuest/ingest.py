@@ -151,11 +151,17 @@ def _fetch_and_store(
     return True
 
 
-def full_sync(query: str = "") -> int:
-    """Backfill every message matching an optional Gmail search query (e.g. 'after:2026/01/01')."""
+def full_sync(query: str = "") -> dict:
+    """Backfill every message matching an optional Gmail search query (e.g. 'after:2026/01/01').
+
+    Returns {"fetched": N, "skipped": M} — "fetched" is messages actually downloaded, "skipped"
+    is messages Gmail matched that were already in the local database (no API call made for
+    those). A run that matches only already-stored messages is a legitimate, cheap no-op.
+    """
     _require_org_email()
     service = get_gmail_service()
     fetched = 0
+    skipped = 0
     with get_conn() as conn:
         request = service.users().messages().list(userId="me", q=query, maxResults=500)
         while request is not None:
@@ -165,6 +171,8 @@ def full_sync(query: str = "") -> int:
                     fetched += 1
                     if fetched % 100 == 0:
                         conn.commit()
+                else:
+                    skipped += 1
             conn.commit()
             request = service.users().messages().list_next(request, response)
 
@@ -176,11 +184,14 @@ def full_sync(query: str = "") -> int:
             (str(profile["historyId"]), datetime.now(timezone.utc).isoformat()),
         )
         conn.commit()
-    return fetched
+    return {"fetched": fetched, "skipped": skipped}
 
 
-def incremental_sync() -> int:
-    """Pull only messages that changed since the last recorded historyId."""
+def incremental_sync() -> dict:
+    """Pull only messages that changed since the last recorded historyId.
+
+    Returns {"fetched": N, "skipped": 0} — same shape as full_sync(), for a consistent CLI.
+    """
     _require_org_email()
     service = get_gmail_service()
     with get_conn() as conn:
@@ -217,4 +228,4 @@ def incremental_sync() -> int:
             (str(latest_history_id), datetime.now(timezone.utc).isoformat()),
         )
         conn.commit()
-    return count
+    return {"fetched": count, "skipped": 0}

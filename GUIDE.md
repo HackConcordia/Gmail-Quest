@@ -83,12 +83,14 @@ command isn't found, whoever set up your computer needs to install it first.)
 ### Step 5 — Copy the emails in
 
 ```
-uv run gmailquest sync --full --query "after:2026/01/01"
+uv run gmailquest sync --full --start 2026-01-01
 ```
 
-This is the step that actually reads the inbox. Adjust the date to however far back you
-want to look. The first time you run it, a browser window pops up asking you to log in
-and approve access — do that once, and it remembers you after.
+This is the step that actually reads the inbox. Change the date to however far back you
+want to look (or leave it off entirely to copy the whole inbox history — slower, but
+sometimes worth it). The first time you run it, a browser window pops up asking you to
+log in and approve access — do that once, and it remembers you after. Once this has run,
+you can just run `uv run gmailquest sync` (no options) any time to grab whatever's new.
 
 ### Step 6 — Group similar questions together (optional)
 
