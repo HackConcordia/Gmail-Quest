@@ -4,6 +4,9 @@ Natural-language statistics over the org's Gmail account — "who emails us most
 people ask about most?" — with exact answers for structured questions and an MCP server so
 any future dev can point their own agent at it.
 
+Not a developer, or just want the short version? See `GUIDE.md` instead — this file assumes
+you're comfortable with a terminal.
+
 See `PLAN.md` for the full design rationale (why not just a generic Gmail MCP connector).
 
 The short version: raw email content never gets summed up by an LLM. Gmail is synced into a
