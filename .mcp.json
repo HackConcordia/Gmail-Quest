@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "gmailquest": {
+      "command": "uv",
+      "args": ["run", "gmailquest-mcp"]
+    }
+  }
+}
