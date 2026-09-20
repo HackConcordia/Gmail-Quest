@@ -1,0 +1,35 @@
+[project]
+name = "gmailquest"
+version = "0.1.0"
+description = "Natural-language statistics tool over the org Gmail account, backed by a local structured index and exposed as an MCP server."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "google-api-python-client>=2.140",
+    "google-auth-httplib2>=0.2",
+    "google-auth-oauthlib>=1.2",
+    "python-dotenv>=1.0",
+    "email-reply-parser>=0.5.12",
+    "pandas>=2.2",
+    "numpy>=1.26,<2.1",
+    "scikit-learn>=1.5",
+    "sentence-transformers>=3.0",
+    "anthropic>=0.40",
+    "mcp[cli]>=2.0",
+    "click>=8.1",
+]
+
+[project.scripts]
+gmailquest = "GmailQuest.cli:main"
+gmailquest-mcp = "GmailQuest.mcp_server:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["GmailQuest"]

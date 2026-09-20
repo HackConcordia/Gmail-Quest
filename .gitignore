@@ -1,0 +1,18 @@
+# Planning notes (internal, not for the repo)
+PLAN.md
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Secrets & local data
+.env
+data/
+token.json
+credentials.json
+*.sqlite
+*.sqlite3
