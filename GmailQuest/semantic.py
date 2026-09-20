@@ -12,15 +12,25 @@ import pandas as pd
 
 from GmailQuest.config import ANTHROPIC_API_KEY, ANTHROPIC_MODEL, EMBEDDING_MODEL
 
+_URL_RE = re.compile(r"https?://\S+")
 _QUESTION_RE = re.compile(r"[^.!?\n]*\?")
 _MIN_QUESTION_LEN = 8
 
 
 def extract_questions(text: str) -> list[str]:
+    """Pull question-like sentences out of a message body.
+
+    URLs are stripped first: a bare link (e.g. a Gmail footer link with a `?query=string`)
+    otherwise gets misread as a question, since it ends in a literal "?" with no sentence
+    boundary before it — the regex would match back to the nearest "." (mid-domain) and
+    produce junk like "com/mail/answer/6576?". Candidates with no whitespace are dropped as
+    a second line of defense — a real question is always more than one word.
+    """
     if not text:
         return []
-    candidates = [q.strip() for q in _QUESTION_RE.findall(text)]
-    return [q for q in candidates if len(q) >= _MIN_QUESTION_LEN]
+    text = _URL_RE.sub(" ", text)
+    candidates = [re.sub(r"\s+", " ", q).strip() for q in _QUESTION_RE.findall(text)]
+    return [q for q in candidates if len(q) >= _MIN_QUESTION_LEN and " " in q]
 
 
 def _load_embedder():
@@ -39,12 +49,13 @@ def _label_cluster(examples: list[str]) -> str:
     client = Anthropic(api_key=ANTHROPIC_API_KEY)
     prompt = (
         "These are questions extracted from emails an organization received. In 2-5 words, "
-        "name the common topic they're asking about. Respond with only the label, no "
-        "punctuation or explanation.\n\n" + "\n".join(f"- {e}" for e in examples)
+        "name the common topic they're asking about. Respond with ONLY the label — never an "
+        "explanation, apology, or sentence. If there's no clear common topic, respond with "
+        "exactly: Miscellaneous\n\n" + "\n".join(f"- {e}" for e in examples)
     )
     response = client.messages.create(
         model=ANTHROPIC_MODEL,
-        max_tokens=20,
+        max_tokens=30,
         messages=[{"role": "user", "content": prompt}],
     )
     return response.content[0].text.strip()
