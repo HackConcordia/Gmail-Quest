@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import base64
 import json
+import random
 import re
 import sqlite3
+import time
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from html import unescape
@@ -22,6 +24,29 @@ from GmailQuest.db import get_conn
 from GmailQuest.parse import clean_body, normalize_sender
 
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
+
+_MAX_RETRIES = 6
+_BASE_DELAY = 2.0
+_MAX_DELAY = 60.0
+
+
+def _execute_with_backoff(request):
+    """Execute a googleapiclient request, retrying with exponential backoff on Gmail's
+    per-user rate limit. Fetching messages one at a time can burn through a fresh
+    project's per-minute quota fast; this lets sync self-throttle instead of crashing."""
+    for attempt in range(_MAX_RETRIES):
+        try:
+            return request.execute()
+        except HttpError as e:
+            is_rate_limit = e.resp.status in (403, 429) and (
+                "rateLimitExceeded" in str(e)
+                or "userRateLimitExceeded" in str(e)
+                or "quotaExceeded" in str(e)
+            )
+            if not is_rate_limit or attempt == _MAX_RETRIES - 1:
+                raise
+            delay = min(_BASE_DELAY * (2**attempt), _MAX_DELAY) + random.uniform(0, 1)
+            time.sleep(delay)
 
 
 def _require_org_email() -> None:
@@ -108,29 +133,42 @@ def _upsert(conn: sqlite3.Connection, row: dict) -> None:
     )
 
 
-def _fetch_and_store(conn: sqlite3.Connection, service, message_id: str) -> None:
-    msg = service.users().messages().get(userId="me", id=message_id, format="full").execute()
+def _fetch_and_store(
+    conn: sqlite3.Connection, service, message_id: str, skip_existing: bool = False
+) -> bool:
+    """Fetch one message and upsert it. Returns whether an API call was actually made —
+    lets full_sync skip messages it already has, so a re-run after a crash or a rate-limit
+    exhaustion doesn't re-spend quota re-downloading everything from the start."""
+    if skip_existing:
+        already_have = conn.execute(
+            "SELECT 1 FROM messages WHERE id = ?", (message_id,)
+        ).fetchone()
+        if already_have:
+            return False
+    request = service.users().messages().get(userId="me", id=message_id, format="full")
+    msg = _execute_with_backoff(request)
     _upsert(conn, _message_to_row(msg))
+    return True
 
 
 def full_sync(query: str = "") -> int:
     """Backfill every message matching an optional Gmail search query (e.g. 'after:2026/01/01')."""
     _require_org_email()
     service = get_gmail_service()
-    count = 0
+    fetched = 0
     with get_conn() as conn:
         request = service.users().messages().list(userId="me", q=query, maxResults=500)
         while request is not None:
-            response = request.execute()
+            response = _execute_with_backoff(request)
             for meta in response.get("messages", []):
-                _fetch_and_store(conn, service, meta["id"])
-                count += 1
-                if count % 100 == 0:
-                    conn.commit()
+                if _fetch_and_store(conn, service, meta["id"], skip_existing=True):
+                    fetched += 1
+                    if fetched % 100 == 0:
+                        conn.commit()
             conn.commit()
             request = service.users().messages().list_next(request, response)
 
-        profile = service.users().getProfile(userId="me").execute()
+        profile = _execute_with_backoff(service.users().getProfile(userId="me"))
         conn.execute(
             "INSERT INTO sync_state (id, last_history_id, last_synced_at) VALUES (1, ?, ?) "
             "ON CONFLICT(id) DO UPDATE SET last_history_id = excluded.last_history_id, "
@@ -138,7 +176,7 @@ def full_sync(query: str = "") -> int:
             (str(profile["historyId"]), datetime.now(timezone.utc).isoformat()),
         )
         conn.commit()
-    return count
+    return fetched
 
 
 def incremental_sync() -> int:
@@ -158,7 +196,7 @@ def incremental_sync() -> int:
                 userId="me", startHistoryId=start_history_id, historyTypes=["messageAdded"]
             )
             while request is not None:
-                response = request.execute()
+                response = _execute_with_backoff(request)
                 latest_history_id = response.get("historyId", latest_history_id)
                 for h in response.get("history", []):
                     for m in h.get("messagesAdded", []):
